@@ -1,0 +1,39 @@
+@import "tailwindcss";
+
+@theme {
+  --color-brand: #1f5c43;
+  --color-brand-dark: #174834;
+  --color-brand-light: #2e7457;
+  --color-brand-soft: #e3ede6;
+  --color-ochre: #a86a12;
+  --color-ochre-soft: #f6e9d2;
+  --color-paper: #f4f1e8;
+  --color-line: #e2dccb;
+  --color-ink: #1e2b24;
+  --color-muted: #5a6259;
+
+  --font-sans: var(--font-hind), "Noto Sans Bengali", sans-serif;
+  --font-display: var(--font-tiro), "Noto Serif Bengali", serif;
+}
+
+body {
+  background: var(--color-paper);
+  color: var(--color-ink);
+}
+
+:focus-visible {
+  outline: 2px solid var(--color-ochre);
+  outline-offset: 2px;
+}
+
+@media print {
+  @page {
+    size: A4;
+    margin: 14mm;
+  }
+  body {
+    background: #fff;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+}

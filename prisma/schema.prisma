@@ -1,0 +1,340 @@
+// =============================================================
+// প্রদর্শনী রেজিস্টার — উপজেলা কৃষি অফিস, রাউজান
+// Stack: Next.js + Prisma + Supabase (PostgreSQL)
+// =============================================================
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// -------------------------------------------------------------
+// Enums
+// -------------------------------------------------------------
+
+enum UserRole {
+  ADMIN     // সব কিছু করতে পারবেন, মাস্টার ডেটা সহ
+  OPERATOR  // এন্ট্রি ও সম্পাদনা, মাস্টার ডেটা নয়
+}
+
+enum Season {
+  RABI      // রবি
+  KHARIF1   // খরিফ-১
+  KHARIF2   // খরিফ-২
+  YEAR_ROUND // সারা বছর (ফলবাগান ইত্যাদি)
+}
+
+enum FundingType {
+  PROJECT   // উন্নয়ন প্রকল্প
+  REVENUE   // রাজস্ব খাত
+}
+
+enum DemoStatus {
+  PLANNED      // পরিকল্পিত
+  ESTABLISHED  // স্থাপিত
+  ONGOING      // চলমান
+  HARVESTED    // কর্তন সম্পন্ন
+  COMPLETED    // সম্পন্ন (মাঠ দিবস/রিপোর্ট সহ)
+  CANCELLED    // বাতিল
+}
+
+enum PhotoStage {
+  ESTABLISHMENT // স্থাপন
+  GROWTH        // বৃদ্ধি পর্যায়
+  INSPECTION    // পরিদর্শন
+  HARVEST       // কর্তন
+  FIELD_DAY     // মাঠ দিবস
+  SIGNBOARD     // সাইনবোর্ড
+  OTHER
+}
+
+// -------------------------------------------------------------
+// ব্যবহারকারী (Supabase Auth এর সাথে যুক্ত)
+// অ্যাডমিন আগে ইমেইল দিয়ে ব্যবহারকারী যোগ করবেন; প্রথম লগইনে authId বসে যাবে
+// -------------------------------------------------------------
+
+model User {
+  id          String   @id @default(uuid())
+  authId      String?  @unique // Supabase auth.users.id — প্রথম লগইনে যুক্ত হয়
+  name        String
+  designation String?
+  email       String   @unique
+  role        UserRole @default(OPERATOR)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  demonstrationsCreated Demonstration[] @relation("DemoCreatedBy")
+}
+
+// -------------------------------------------------------------
+// মাস্টার ডেটা
+// -------------------------------------------------------------
+
+model FiscalYear {
+  id        String   @id @default(uuid())
+  label     String   @unique // যেমন "২০২৫-২৬"
+  startDate DateTime
+  endDate   DateTime
+  isActive  Boolean  @default(false)
+
+  allocations    Allocation[]
+  demonstrations Demonstration[]
+}
+
+model FundingSource {
+  id        String      @id @default(uuid())
+  name      String      // পূর্ণ নাম
+  shortName String?     // সংক্ষিপ্ত নাম (রিপোর্টে)
+  type      FundingType
+  isActive  Boolean     @default(true)
+
+  demoTypes      DemoType[]
+  allocations    Allocation[]
+  demonstrations Demonstration[]
+
+  @@unique([name, type])
+}
+
+model DemoType {
+  id              String   @id @default(uuid())
+  name            String   // যেমন "উফশী বোরো ধান প্রদর্শনী"
+  fundingSourceId String
+  defaultAreaDec  Decimal? @db.Decimal(10, 2) // ডিফল্ট আয়তন (শতাংশ)
+  defaultBudget   Decimal? @db.Decimal(12, 2) // প্রতি প্রদর্শনী বরাদ্দ (টাকা)
+  isActive        Boolean  @default(true)
+
+  fundingSource  FundingSource   @relation(fields: [fundingSourceId], references: [id])
+  allocations    Allocation[]
+  demonstrations Demonstration[]
+
+  @@unique([fundingSourceId, name])
+}
+
+// অর্থবছর ভিত্তিক লক্ষ্যমাত্রা/বরাদ্দ
+model Allocation {
+  id              String   @id @default(uuid())
+  fiscalYearId    String
+  fundingSourceId String
+  demoTypeId      String
+  season          Season
+  targetCount     Int      // লক্ষ্যমাত্রা (সংখ্যা)
+  budgetPerDemo   Decimal? @db.Decimal(12, 2)
+  memoNo          String?  // বরাদ্দপত্রের স্মারক নং
+  memoDate        DateTime?
+  remarks         String?
+
+  fiscalYear    FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  fundingSource FundingSource @relation(fields: [fundingSourceId], references: [id])
+  demoType      DemoType      @relation(fields: [demoTypeId], references: [id])
+
+  @@unique([fiscalYearId, demoTypeId, season])
+}
+
+model Crop {
+  id        String    @id @default(uuid())
+  name      String    @unique // ফসলের নাম
+  category  String?   // দানাশস্য, সবজি, ফল, ডাল, তেল ইত্যাদি
+
+  varieties      Variety[]
+  demonstrations Demonstration[]
+}
+
+model Variety {
+  id     String @id @default(uuid())
+  cropId String
+  name   String // জাতের নাম
+
+  crop           Crop            @relation(fields: [cropId], references: [id])
+  demonstrations Demonstration[]
+
+  @@unique([cropId, name])
+}
+
+model Union {
+  id           String  @id @default(uuid())
+  name         String  @unique
+  isPourashava Boolean @default(false)
+  sortOrder    Int     @default(0)
+
+  blocks Block[]
+}
+
+model Staff {
+  id          String  @id @default(uuid())
+  name        String
+  designation String  @default("উপসহকারী কৃষি কর্মকর্তা")
+  mobile      String?
+  isActive    Boolean @default(true)
+
+  blocks Block[]
+}
+
+model Block {
+  id      String  @id @default(uuid())
+  unionId String
+  name    String
+  staffId String? // বর্তমান দায়িত্বপ্রাপ্ত SAAO
+
+  union          Union           @relation(fields: [unionId], references: [id])
+  staff          Staff?          @relation(fields: [staffId], references: [id])
+  farmers        Farmer[]
+  demonstrations Demonstration[]
+
+  @@unique([unionId, name])
+}
+
+model Farmer {
+  id         String   @id @default(uuid())
+  name       String
+  fatherName String?
+  mobile     String?
+  nid        String?  @unique
+  cardNo     String?  // কৃষি উপকরণ সহায়তা কার্ড নং
+  village    String
+  blockId    String
+  createdAt  DateTime @default(now())
+
+  block          Block           @relation(fields: [blockId], references: [id])
+  demonstrations Demonstration[]
+
+  @@index([name])
+  @@index([mobile])
+}
+
+// -------------------------------------------------------------
+// মূল রেজিস্টার: প্রদর্শনী
+// -------------------------------------------------------------
+
+model Demonstration {
+  id              String     @id @default(uuid())
+  regNo           String     @unique // যেমন "রাউ/২০২৫-২৬/০০০১"
+  serialInYear    Int        // অর্থবছরভিত্তিক ক্রমিক
+
+  fiscalYearId    String
+  season          Season
+  fundingSourceId String
+  demoTypeId      String
+  cropId          String
+  varietyId       String?
+  technology      String?    // প্রদর্শিত প্রযুক্তি
+
+  farmerId        String
+  blockId         String
+  staffNameSnap   String?    // স্থাপনকালীন SAAO এর নাম (বদলি হলেও রেকর্ড ঠিক থাকে)
+  village         String
+  landDag         String?    // দাগ/মৌজা
+  areaDecimal     Decimal    @db.Decimal(10, 2) // আয়তন (শতাংশ)
+  latitude        Decimal?   @db.Decimal(9, 6)
+  longitude       Decimal?   @db.Decimal(9, 6)
+
+  budgetAmount    Decimal?   @db.Decimal(12, 2)
+  establishedDate DateTime?
+  sowingDate      DateTime?  // বপন/রোপণ তারিখ
+  signboardPlaced Boolean    @default(false)
+
+  status          DemoStatus @default(PLANNED)
+  remarks         String?
+
+  createdById     String
+  createdAt       DateTime   @default(now())
+  updatedAt       DateTime   @updatedAt
+
+  fiscalYear    FiscalYear    @relation(fields: [fiscalYearId], references: [id])
+  fundingSource FundingSource @relation(fields: [fundingSourceId], references: [id])
+  demoType      DemoType      @relation(fields: [demoTypeId], references: [id])
+  crop          Crop          @relation(fields: [cropId], references: [id])
+  variety       Variety?      @relation(fields: [varietyId], references: [id])
+  farmer        Farmer        @relation(fields: [farmerId], references: [id])
+  block         Block         @relation(fields: [blockId], references: [id])
+  createdBy     User          @relation("DemoCreatedBy", fields: [createdById], references: [id])
+
+  inputs      InputDistribution[]
+  inspections Inspection[]
+  photos      Photo[]
+  result      HarvestResult?
+  fieldDays   FieldDay[]
+
+  @@unique([fiscalYearId, serialInYear])
+  @@index([fiscalYearId, season])
+  @@index([fundingSourceId])
+  @@index([blockId])
+  @@index([status])
+}
+
+// উপকরণ বিতরণ
+model InputDistribution {
+  id              String   @id @default(uuid())
+  demonstrationId String
+  itemName        String   // বীজ, ইউরিয়া, টিএসপি, এমওপি, বালাইনাশক...
+  quantity        Decimal  @db.Decimal(10, 2)
+  unit            String   // কেজি, লিটার, প্যাকেট, টি
+  distributedOn   DateTime?
+  remarks         String?
+
+  demonstration Demonstration @relation(fields: [demonstrationId], references: [id], onDelete: Cascade)
+}
+
+// পরিদর্শন
+model Inspection {
+  id              String   @id @default(uuid())
+  demonstrationId String
+  inspectedOn     DateTime
+  inspectorName   String
+  designation     String?
+  cropStage       String?  // ফসলের পর্যায়
+  condition       String?  // অবস্থা: ভালো/মাঝারি/খারাপ
+  comment         String?
+
+  demonstration Demonstration @relation(fields: [demonstrationId], references: [id], onDelete: Cascade)
+  photos        Photo[]
+}
+
+// ছবি (Supabase Storage এ সংরক্ষিত)
+model Photo {
+  id              String     @id @default(uuid())
+  demonstrationId String
+  inspectionId    String?
+  storagePath     String     // bucket এর ভেতরের path
+  stage           PhotoStage @default(OTHER)
+  caption         String?
+  takenOn         DateTime?
+  createdAt       DateTime   @default(now())
+
+  demonstration Demonstration @relation(fields: [demonstrationId], references: [id], onDelete: Cascade)
+  inspection    Inspection?   @relation(fields: [inspectionId], references: [id], onDelete: SetNull)
+}
+
+// কর্তন ও ফলাফল
+model HarvestResult {
+  id              String   @id @default(uuid())
+  demonstrationId String   @unique
+  harvestDate     DateTime
+  demoYield       Decimal  @db.Decimal(10, 2) // প্রদর্শনী প্লটের ফলন
+  controlYield    Decimal? @db.Decimal(10, 2) // পার্শ্ববর্তী/কন্ট্রোল প্লটের ফলন
+  yieldUnit       String   @default("টন/হেক্টর")
+  productionCost  Decimal? @db.Decimal(12, 2) // উৎপাদন খরচ (টাকা/হেক্টর)
+  grossReturn     Decimal? @db.Decimal(12, 2) // মোট আয় (টাকা/হেক্টর)
+  farmerOpinion   String?
+  officerComment  String?
+
+  demonstration Demonstration @relation(fields: [demonstrationId], references: [id], onDelete: Cascade)
+}
+
+// মাঠ দিবস
+model FieldDay {
+  id               String   @id @default(uuid())
+  demonstrationId  String
+  heldOn           DateTime
+  maleParticipants   Int    @default(0)
+  femaleParticipants Int    @default(0)
+  chiefGuest       String?
+  chairperson      String?
+  remarks          String?
+
+  demonstration Demonstration @relation(fields: [demonstrationId], references: [id], onDelete: Cascade)
+}
